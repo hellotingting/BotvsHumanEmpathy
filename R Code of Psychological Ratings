@@ -1,0 +1,144 @@
+
+#################### t tests ####################
+# Run t test on general empathy: bot vs human
+ 
+t_test_em <- t.test(perceived_empathy ~ bot_conversations, data = subset_data)
+ 
+print(t_test_em)
+ 
+# Run t test on closeness: bot vs human
+t_test_close <- t.test(closeness_17 ~ bot_conversations, data = subset_data)
+ 
+print(t_test_close)
+ 
+# Calculate state empathy
+subset_data <- subset_data %>%
+  rowwise() %>%
+  mutate(state_empathy = mean(c(rate_conv_partner_15_1, rate_conv_partner_15_2,
+                            	rate_conv_partner_15_3, rate_conv_partner_15_4,
+                            	rate_conv_partner_15_5,rate_conv_partner_15_6)),
+     	state_empathy_aff = mean (c(rate_conv_partner_15_1, rate_conv_partner_15_4)),
+     	state_empathy_con = mean (c(rate_conv_partner_15_2, rate_conv_partner_15_5)),
+     	state_empathy_ass = mean (c(rate_conv_partner_15_3, rate_conv_partner_15_6)))
+ 
+# Run t test on overall state empathy, affective state empathy, cognitive state empathy, associative state empathy: bot vs human
+ 
+t_test_state_em <- t.test(state_empathy ~ bot_conversations, data = subset_data)
+t_test_state_empathy_aff <- t.test(state_empathy_aff ~ bot_conversations, data = subset_data)
+t_test_state_empathy_con <- t.test(state_empathy_con ~ bot_conversations, data = subset_data)
+t_test_state_empathy_ass <- t.test(state_empathy_ass ~ bot_conversations, data = subset_data)
+ 
+print(t_test_state_em) #overall state empathy
+print(t_test_state_empathy_aff) # affective state empathy
+print(t_test_state_empathy_con) # cognitive state empathy
+print(t_test_state_empathy_ass) # associative state empathy
+
+
+
+
+ 
+#################### Within-person comparison ####################
+ 
+# Identify agents who have talked to both bots and humans
+agents_with_both <- subset_data %>%
+  group_by(agent_id) %>%
+  summarize(
+	talked_to_bot = any(bot_conversations == 1),
+	talked_to_human = any(bot_conversations == 0),
+	.groups = 'drop'
+  ) %>%
+  filter(talked_to_bot & talked_to_human) %>%
+  select(agent_id)
+ 
+# Filter the data to include only these agents
+ratings_data <- subset_data %>%
+  filter(agent_id %in% agents_with_both$agent_id) %>%
+  select(agent_id, conversation_id, bot_conversations,
+     	state_empathy_aff, state_empathy_con, state_empathy_ass, state_empathy,
+     	perceived_empathy, closeness_17)
+ 
+# Convert data into a long format for easier t-testing
+ratings_long <- ratings_data %>%
+  pivot_longer(
+	cols = c(state_empathy_aff, state_empathy_con, state_empathy_ass, state_empathy,
+         	perceived_empathy, closeness_17),
+	names_to = "rating_type",
+	values_to = "rating_value"
+  ) %>%
+  mutate(conversation_type = if_else(bot_conversations == 1, "bot", "human"))
+ 
+# Calculate means and sample sizes for bot and human conversations
+means_and_sizes <- ratings_long %>%
+  group_by(rating_type, conversation_type) %>%
+  summarize(
+	mean_rating = mean(rating_value, na.rm = TRUE),
+	sample_size = n(),  # Sample size for each group
+	.groups = 'drop'
+  )
+# Perform t-tests for each rating type
+t_test_results <- ratings_long %>%
+  group_by(rating_type) %>%
+  summarize(
+	t_test = list(t.test(rating_value ~ conversation_type, data = cur_data())),
+	.groups = 'drop'
+  )
+ 
+# Combine means, sample sizes, and t-test results
+combined_results <- means_and_sizes %>%
+  pivot_wider(names_from = conversation_type, values_from = c(mean_rating, sample_size), names_sep = "_") %>%
+  left_join(
+	t_test_results %>%
+  	mutate(
+    	t_statistic = sapply(t_test, function(x) x$statistic),
+    	p_value = sapply(t_test, function(x) x$p.value)
+  	) %>%
+  	select(rating_type, t_statistic, p_value),
+	by = "rating_type"
+  )
+ 
+# View the results
+print(combined_results)
+ 
+################# Overall conv quality (only in wassa 24)###################
+# Extract the conversation_id from the subset_data
+subset_conversation_ids <- subset_data$conversation_id
+ 
+# Subset wassa24 using the conversation_id values from subset_data
+wassa24_subset <- wassa24[wassa24$conversation_id %in% subset_conversation_ids, ]
+ 
+# Calculate state empathy
+wassa24_subset <- wassa24_subset  %>%
+  rowwise() %>%
+  mutate(state_empathy = mean(c(rate_conv_partner_15_1, rate_conv_partner_15_2,
+                            	rate_conv_partner_15_3, rate_conv_partner_15_4,
+                            	rate_conv_partner_15_5,rate_conv_partner_15_6)),
+     	state_empathy_aff = mean (c(rate_conv_partner_15_1, rate_conv_partner_15_4)),
+     	state_empathy_con = mean (c(rate_conv_partner_15_2, rate_conv_partner_15_5)),
+     	state_empathy_ass = mean (c(rate_conv_partner_15_3, rate_conv_partner_15_6)))
+ 
+# Make sure bot_conversations is factor
+wassa24_subset$bot_conversations<-as.factor(wassa24_subset$bot_conversations)
+ 
+# Fit a mixed model with participant id as the random effect
+# Overall conversation quality question: overall_question_con_1
+ 
+#install.packages("lmerTest")
+library(lmerTest)
+ 
+# General empathy
+model_general_em <- lmer(overall_question_con_1 ~ bot_conversations*perceived_empathy + (1 | agent_id), data = wassa24_subset)
+ 
+# Overall state empathy
+model_state_em <- lmer(overall_question_con_1 ~  bot_conversations*state_empathy + (1 | agent_id), data = wassa24_subset)
+ 
+# Subscale of state empathy
+model_sub_state_em <- lmer(overall_question_con_1 ~   bot_conversations*state_empathy_aff + bot_conversations*state_empathy_con + bot_conversations*state_empathy_ass + (1 | agent_id), data = wassa24_subset)
+ 
+# Closeness
+model_closeness <- lmer(overall_question_con_1 ~ bot_conversations*closeness_17 + (1 | agent_id), data = wassa24_subset)
+ 
+# Display the results
+summary(model_general_em)
+summary(model_state_em)
+summary(model_sub_state_em)
+summary(model_closeness)
