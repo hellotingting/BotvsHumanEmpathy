@@ -1,0 +1,63 @@
+import ast
+import torch
+import json
+import openai
+import pandas as pd
+
+
+
+
+#openai.api_key = authentication_method_of_choice(password)
+
+
+def run_rater_gpt(text):
+   the_thing = 'Based on the prompt rate this appropriately for perceived empathy' + text
+   messages = [
+       {"role": "system",
+        "content": "You are an empathy rater. You look at what a person says and rate their perceived empathy. You will look at conversations and dialogues between two persons denoted by format Speaker: XYZ. Look at the speaker numbers and dialogs then give me a score output between 1 to 7 on your perceived empathy for both speakers. 1 is lowest 7 is highest. You will see two people talking Speaker XYZ and Speaker ABC. Return your result in format {\"xyz_id\": score from 1-7 , \"abc_id\": score from 1-7}. where xyz and abc are the speaker ids you extract. Only return this format and don't include anything else"},
+       {"role": "user", "content": the_thing}
+   ]
+
+
+   response = openai.ChatCompletion.create(
+       model="gpt-4o",
+       messages=messages,
+   )
+
+
+   return response.choices[0].message['content']
+
+
+
+
+df = pd.read_csv('path_to_csvfile.csv')
+
+
+grouped_conversations = df.groupby('conversation_id')
+
+
+# init o/p dict
+output_dict = {}
+
+
+# make turns based on the conv_id
+i=0
+for conversation_id, group in grouped_conversations:
+   print(i)
+   #if i == 5:
+      #break code to debug and test a few strings first
+   # Sort by message_id to ensure the conversation is in the correct order
+   group = group.sort_values('message_id')
+
+
+   # Create a conversation string to pass to the rater function
+   conversation_string = "\n".join([f"Speaker_{row['speakConv']}: {row['message']}" for _, row in group.iterrows()])
+
+
+
+
+    empathy_scores = run_rater_gpt(conversation_string)
+
+
+    print(empathy_scores)
+
